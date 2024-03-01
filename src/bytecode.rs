@@ -5,6 +5,36 @@ use anyhow::{bail, Result};
 use serde_json as json;
 use smallvec::smallvec;
 
+mod float {
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+    pub struct EqFloat(f64);
+
+    impl EqFloat {
+        pub fn from_json(num: &super::json::Number) -> Option<Self> {
+            num.as_f64().map(EqFloat)
+        }
+
+        pub fn get(&self) -> f64 {
+            self.0
+        }
+    }
+
+    impl Eq for EqFloat {}
+
+    // SAFETY: This value can only be constructed from a JSON number
+    // and is otherwise private. JSON and the serde_json library
+    // require that an f64 is neither NaN nor infinity. Therefore we
+    // can pretend that they are Eq and Ord without consequence
+    //
+    // https://docs.rs/serde_json/latest/serde_json/value/struct.Number.html#method.from_f64
+    #[allow(clippy::derive_ord_xor_partial_ord)]
+    impl Ord for EqFloat {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.0.partial_cmp(&other.0).unwrap()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LispObject {
     Symbol(Cow<'static, str>),
@@ -12,7 +42,7 @@ pub enum LispObject {
     UnibyteStr(Vec<u8>),
     Str(Cow<'static, str>),
     Int(i64),
-    Float(Cow<'static, str>), // use string for Eq and Ord
+    Float(float::EqFloat),
     Nil,
     T,
     Vector(Vec<LispObject>),
@@ -104,7 +134,7 @@ impl LispObject {
                 result.into()
             }
             LispObject::Int(i) => i.to_string().into(),
-            LispObject::Float(s) => s.clone(),
+            LispObject::Float(s) => s.get().to_string().into(),
             LispObject::Nil => "nil".into(),
             LispObject::T => "t".into(),
             LispObject::Vector(v) => format!(
@@ -351,8 +381,8 @@ impl BytecodeCompiler {
                 self.compile_constant_op(LispObject::T);
             }
             json::Value::Number(ref num) => {
-                if num.is_f64() {
-                    self.compile_constant_op(LispObject::Float(num.to_string().into()));
+                if let Some(float) = float::EqFloat::from_json(num) {
+                    self.compile_constant_op(LispObject::Float(float));
                 } else {
                     self.compile_constant_op(LispObject::Int(num.as_i64().unwrap()));
                 }
