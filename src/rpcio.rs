@@ -11,7 +11,7 @@ pub fn rpc_read(reader: &mut impl std::io::BufRead) -> Result<String> {
         let mut line = String::new();
         reader.read_line(&mut line)?;
         if line.is_empty() {
-            return Ok(String::new());
+            return Ok(line);
         }
         if line == "\r\n" {
             if let Some(content_len) = content_len {

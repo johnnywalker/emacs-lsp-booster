@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
 use std::str::FromStr;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use anyhow::{bail, Result};
 use serde_json as json;
@@ -7,12 +7,12 @@ use smallvec::smallvec;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LispObject {
-    Symbol(String),
-    Keyword(String),
+    Symbol(Cow<'static, str>),
+    Keyword(Cow<'static, str>),
     UnibyteStr(Vec<u8>),
-    Str(String),
+    Str(Cow<'static, str>),
     Int(i64),
-    Float(String), // use string for Eq and Ord
+    Float(Cow<'static, str>), // use string for Eq and Ord
     Nil,
     T,
     Vector(Vec<LispObject>),
@@ -28,7 +28,7 @@ impl FromStr for LispObject {
         } else if s == "t" {
             Ok(Self::T)
         } else if s.starts_with(':') {
-            Ok(Self::Keyword(s[1..].to_string()))
+            Ok(Self::Keyword(s[1..].to_string().into()))
         } else {
             bail!("Supported LispObject: {}", s)
         }
@@ -36,10 +36,10 @@ impl FromStr for LispObject {
 }
 
 impl LispObject {
-    fn to_repl(&self) -> String {
+    fn to_repl(&self) -> Cow<'static, str> {
         match self {
             LispObject::Symbol(s) => s.clone(),
-            LispObject::Keyword(s) => format!(":{}", s),
+            LispObject::Keyword(s) => format!(":{}", s).into(),
             LispObject::Str(s) => {
                 let mut result = String::new();
                 result.reserve(s.len() * 2 + 2);
@@ -57,7 +57,7 @@ impl LispObject {
                     }
                 }
                 result.push('"');
-                result
+                result.into()
             }
             LispObject::UnibyteStr(vec) => {
                 let mut result = String::new();
@@ -101,16 +101,17 @@ impl LispObject {
                     last_oct_escape_not_full = oct_escape_not_full;
                 }
                 result.push('"');
-                result
+                result.into()
             }
-            LispObject::Int(i) => i.to_string(),
+            LispObject::Int(i) => i.to_string().into(),
             LispObject::Float(s) => s.clone(),
             LispObject::Nil => "nil".into(),
             LispObject::T => "t".into(),
             LispObject::Vector(v) => format!(
                 "[{}]",
                 v.iter().map(|x| x.to_repl()).collect::<Vec<_>>().join(" ")
-            ),
+            )
+            .into(),
         }
     }
 }
@@ -234,7 +235,6 @@ impl Default for BytecodeOptions {
 // Only for generating json. Sequential execution only.
 struct BytecodeCompiler {
     options: BytecodeOptions,
-
     ops: Vec<Op>,
     constants: BTreeMap<LispObject, (u32, u32)>, // (index, count)
 }
@@ -297,11 +297,11 @@ impl BytecodeCompiler {
 
         for (key, value) in map {
             if alist {
-                self.compile_constant_op(LispObject::Symbol(key.clone()));
+                self.compile_constant_op(LispObject::Symbol(key.to_string().into()));
                 self.compile_value(value);
                 self.ops.push(Op::Cons);
             } else {
-                self.compile_constant_op(LispObject::Keyword(key.clone()));
+                self.compile_constant_op(LispObject::Keyword(key.to_string().into()));
                 self.compile_value(value);
             }
         }
@@ -331,7 +331,7 @@ impl BytecodeCompiler {
 
         for (key, value) in map {
             self.compile_constant_op(LispObject::Symbol("puthash".into()));
-            self.compile_constant_op(LispObject::Str(key.clone()));
+            self.compile_constant_op(LispObject::Str(key.to_string().into()));
             self.compile_value(value);
             self.ops.push(Op::StackRef(3));
             self.ops.push(Op::Call(3));
@@ -352,13 +352,13 @@ impl BytecodeCompiler {
             }
             json::Value::Number(ref num) => {
                 if num.is_f64() {
-                    self.compile_constant_op(LispObject::Float(num.to_string()));
+                    self.compile_constant_op(LispObject::Float(num.to_string().into()));
                 } else {
                     self.compile_constant_op(LispObject::Int(num.as_i64().unwrap()));
                 }
             }
             json::Value::String(ref s) => {
-                self.compile_constant_op(LispObject::Str(s.clone()));
+                self.compile_constant_op(LispObject::Str(s.to_string().into()));
             }
             json::Value::Array(ref arr) => {
                 self.compile_value_array(arr);
