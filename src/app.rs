@@ -46,7 +46,13 @@ fn process_client_reader(
         }
 
         if server_channel_counter.load(atomic::Ordering::Acquire) >= MAX_PENDING_MSG_COUNT {
-            let lsp_request: LspRequest = json::from_str(&msg)?;
+            let lsp_request: LspRequest = match json::from_str(&msg) {
+                Err(_err) => {
+                    warn!("client->server: invalid json: {}", msg);
+                    continue;
+                }
+                Ok(v) => v,
+            };
             // only cancel when it's not notification
             if !lsp_request.is_notification() {
                 warn!(
@@ -86,7 +92,13 @@ fn process_server_reader(
             break;
         }
         if let Some(ref bytecode_options) = bytecode_options {
-            let json_val = json::from_str(&msg)?;
+            let json_val = match json::from_str(&msg) {
+                Err(_err) => {
+                    warn!("server->client: invalid json: {}", msg);
+                    continue;
+                }
+                Ok(v) => v,
+            };
             match bytecode::generate_bytecode_repl(&json_val, bytecode_options.clone()) {
                 Ok(bytecode_str) => {
                     debug!(
